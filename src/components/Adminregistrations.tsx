@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { supabase } from "./../lib/supabaseClient";
 import { naira } from "./../lib/Payments";
 import * as XLSX from "xlsx";
+import AdminCheckin from "./AdminCheckin";
 
 export default function AdminRegistrations() {
   const { id } = useParams<{ id: string }>();
@@ -12,11 +13,12 @@ export default function AdminRegistrations() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "paid" | "pending" | "checked_in">("all");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"list" | "desk">("list");
 
   useEffect(() => { void load(); }, [id]);
 
-  async function load() {
-    setLoading(true);
+  async function load(quiet = false) {
+    if (!quiet) setLoading(true);
     const [{ data: prog }, { data: regs }] = await Promise.all([
       supabase.from("programmes").select("*").eq("id", id).maybeSingle(),
       supabase.from("programme_registrations")
@@ -76,6 +78,8 @@ export default function AdminRegistrations() {
       Name: r.full_name, Gender: r.gender, Phone: r.phone, Email: r.email,
       Church: r.church, Archdeaconry: r.archdeaconry, Photo: r.photo_url ?? "",
       Payment: r.payment_status, "Checked in": r.checked_in ? "Yes" : "No",
+      Hostel: r.hostel ?? "", "Bible study class": r.bible_study_class ?? "", Unit: r.unit ?? "",
+      "Tag printed": r.tag_print_count > 0 ? "Yes" : "No",
       ...(r.answers ?? {}),
     }));
     const wb = XLSX.utils.book_new();
@@ -97,6 +101,22 @@ export default function AdminRegistrations() {
         {programme?.fee_naira > 0 && ` · ${naira(paid * programme.fee_naira)} collected`}
       </p>
 
+      <div className="flex gap-2 mb-5">
+        <button onClick={() => setTab("list")}
+                className={`px-4 py-2 rounded text-sm ${tab === "list" ? "bg-[#800000] text-white" : "bg-gray-200"}`}>
+          Registrations
+        </button>
+        <button onClick={() => setTab("desk")}
+                className={`px-4 py-2 rounded text-sm ${tab === "desk" ? "bg-[#800000] text-white" : "bg-gray-200"}`}>
+          Check-in desk &amp; tags
+        </button>
+      </div>
+
+      {tab === "desk" && id && (
+        <AdminCheckin programmeId={id} onChanged={() => void load(true)} />
+      )}
+
+      {tab === "list" && (<>
       <div className="flex flex-wrap gap-3 mb-4 justify-between">
         <input className="border rounded px-3 py-2 flex-1 min-w-[220px]"
                placeholder="Search name, church, archdeaconry, phone…"
@@ -124,6 +144,7 @@ export default function AdminRegistrations() {
               <th className="px-3 py-2">Phone</th>
               <th className="px-3 py-2">Payment</th>
               <th className="px-3 py-2">Check-in</th>
+              <th className="px-3 py-2">Hostel / Class / Unit</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -161,6 +182,9 @@ export default function AdminRegistrations() {
                     {r.checked_in ? "Checked in" : "Check in"}
                   </button>
                 </td>
+                <td className="px-3 py-2 text-xs text-gray-600">
+                  {[r.hostel, r.bible_study_class, r.unit].filter(Boolean).join(" · ") || "—"}
+                </td>
                 <td className="px-3 py-2">
                   <button onClick={() => remove(r)} disabled={busyId === r.id}
                           className="text-red-600 text-xs">
@@ -172,6 +196,7 @@ export default function AdminRegistrations() {
           </tbody>
         </table>
       </div>
+      </>)}
     </div>
   );
 }
