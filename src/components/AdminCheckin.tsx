@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { LABEL_SIZES, buildTagHtml, printHtml } from "../lib/Tagprint";
+import { LABEL_SIZES, MAX_TAG_ROWS, buildTagHtml, printHtml } from "../lib/Tagprint";
 import QrScanner from "./Qrscanner";
+import ProgrammeCheckinSetup from "./Programmecheckinsetup";
+import type { AssignmentField } from "./Programmecheckinsetup";
 
 /**
  * Check-in desk.
  *
- * Find a person (scan their QR, or type a name, phone or voucher code),
- * set their hostel / bible study class / unit, and print their tag on the
- * thermal label printer. Printing also checks them in.
+ * Find a person (scan their QR, or type a name, phone, voucher or
+ * confirmation code), fill in what the programme assigns (hostel, class,
+ * unit… whatever was set up), and print their tag on the thermal label
+ * printer. Printing also checks them in.
  *
  * A USB barcode scanner works too: click the search box and scan. The
  * scanner "types" the code and presses Enter.
@@ -18,17 +21,17 @@ interface Person {
   id: string; full_name: string; gender: string | null; phone: string | null;
   archdeaconry: string | null; church: string | null; photo_url: string | null;
   payment_status: string; checked_in: boolean; checked_in_at: string | null;
-  hostel: string | null; bible_study_class: string | null; unit: string | null;
+  assignments: Record<string, string> | null;
   tag_print_count: number; voucher_code: string | null;
 }
 
 interface Programme {
   id: string; title: string;
-  hostel_options: string[] | null; class_options: string[] | null; unit_options: string[] | null;
+  assignment_fields: AssignmentField[] | null;
 }
 
 const SIZE_KEY = "dyo.checkin.labelSize";
-const toList = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+const NO_FIELDS: AssignmentField[] = [];
 
 /**
  * Used inside the programme's Registrations page (programmeId fixed), so the
@@ -42,6 +45,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [programmeId, setProgrammeId] = useState(fixedProgrammeId ?? "");
   const programme = programmes.find((p) => p.id === programmeId);
+  const fields = programme?.assignment_fields ?? NO_FIELDS;
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Person[]>([]);
@@ -49,9 +53,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
   const [searched, setSearched] = useState(false);
 
   const [person, setPerson] = useState<Person | null>(null);
-  const [hostel, setHostel] = useState("");
-  const [cls, setCls] = useState("");
-  const [unit, setUnit] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
 
   const [sizeKey, setSizeKey] = useState(() => {
     try { return localStorage.getItem(SIZE_KEY) ?? LABEL_SIZES[0].key; } catch { return LABEL_SIZES[0].key; }
@@ -63,9 +65,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [preview, setPreview] = useState("");
-
-  const [showLists, setShowLists] = useState(false);
-  const [lists, setLists] = useState({ hostels: "", classes: "", units: "" });
+  const [showSetup, setShowSetup] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -75,7 +75,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
   async function loadProgrammes() {
     const { data, error } = await supabase
       .from("programmes")
-      .select("id, title, hostel_options, class_options, unit_options")
+      .select("id, title, assignment_fields")
       .order("starts_at", { ascending: false });
     if (error) {
       setMessage({ kind: "error", text: `${error.message} (has onsite-checkin.sql been run?)` });
@@ -90,14 +90,6 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
     setResults([]); setPerson(null); setQuery(""); setSearched(false);
     void loadStats(programmeId);
   }, [programmeId]);
-
-  useEffect(() => {
-    setLists({
-      hostels: (programme?.hostel_options ?? []).join(", "),
-      classes: (programme?.class_options ?? []).join(", "),
-      units: (programme?.unit_options ?? []).join(", "),
-    });
-  }, [programme?.id, programme?.hostel_options, programme?.class_options, programme?.unit_options]);
 
   async function loadStats(pid: string) {
     const { data } = await supabase.rpc("checkin_stats", { p_programme_id: pid });
@@ -129,9 +121,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
 
   function pick(p: Person) {
     setPerson(p);
-    setHostel(p.hostel ?? "");
-    setCls(p.bible_study_class ?? "");
-    setUnit(p.unit ?? "");
+    setValues({ ...(p.assignments ?? {}) });
   }
 
   function reset() {
@@ -142,8 +132,10 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
   /* ---------- tag preview ---------- */
   const tagData = useMemo(() => person && ({
     id: person.id, full_name: person.full_name, archdeaconry: person.archdeaconry,
-    photo_url: person.photo_url, hostel, bible_study_class: cls, unit,
-  }), [person, hostel, cls, unit]);
+    photo_url: person.photo_url,
+    rows: fields.filter((f) => f.on_tag).slice(0, MAX_TAG_ROWS)
+      .map((f) => ({ label: f.label, value: values[f.key] })),
+  }), [person, values, fields]);
 
   useEffect(() => {
     if (!tagData) { setPreview(""); return; }
@@ -167,7 +159,8 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
       }
       const { error } = await supabase.rpc("checkin_save", {
         p_registration_id: person.id,
-        p_hostel: hostel, p_class: cls, p_unit: unit, p_printed: print,
+        p_assignments: Object.fromEntries(fields.map((f) => [f.key, values[f.key] ?? ""])),
+        p_printed: print,
       });
       if (error) throw new Error(error.message);
 
@@ -183,21 +176,6 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
       setMessage({ kind: "error", text: (err as Error).message });
     }
     setBusy(false);
-  }
-
-  async function saveLists() {
-    if (!programmeId) return;
-    const payload = {
-      p_programme_id: programmeId,
-      p_hostels: toList(lists.hostels),
-      p_classes: toList(lists.classes),
-      p_units: toList(lists.units),
-    };
-    const { error } = await supabase.rpc("checkin_set_options", payload);
-    if (error) { setMessage({ kind: "error", text: error.message }); return; }
-    setMessage({ kind: "ok", text: "Lists saved." });
-    setShowLists(false);
-    void loadProgrammes();
   }
 
   function chooseSize(key: string) {
@@ -217,7 +195,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
         <div>
           {!embedded && <h1 className="text-2xl font-bold">Check-in &amp; tag printing</h1>}
           <p className="text-gray-600 text-sm">
-            Scan a QR code, or search by name, phone or voucher code. Then print the tag.
+            Scan a QR code, or search by name, phone, voucher code or confirmation code. Then print the tag.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -234,35 +212,33 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-6 text-sm mb-4 border rounded p-3 bg-white">
+      <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm mb-4 border rounded p-3 bg-white items-center">
         <span><b>{stats.registered}</b> registered</span>
         <span><b>{stats.checked_in}</b> checked in</span>
         <span><b>{stats.printed}</b> tags printed</span>
-        <button className="underline ml-auto" onClick={() => setShowLists((v) => !v)}>
-          {showLists ? "Hide" : "Edit"} hostels, classes &amp; units
-        </button>
+        <span className="ml-auto flex gap-4">
+          {programmeId && (
+            <a className="underline" href={`/scan?programme=${programmeId}`} target="_blank" rel="noopener">
+              Open meal / session scanner
+            </a>
+          )}
+          <button className="underline" onClick={() => setShowSetup((v) => !v)}>
+            {showSetup ? "Hide set-up" : "Set up assignments, meals & scanners"}
+          </button>
+        </span>
       </div>
 
-      {showLists && (
-        <div className="border rounded p-4 mb-4 bg-white">
-          <p className="text-sm text-gray-600 mb-3">
-            Separate each one with a comma. These become the choices at the desk
-            (you can still type something else).
-          </p>
-          <div className="grid md:grid-cols-3 gap-3">
-            {([["hostels", "Hostels"], ["classes", "Bible study classes"], ["units", "Units"]] as const)
-              .map(([key, label]) => (
-                <label key={key} className="text-sm">{label}
-                  <textarea className="border rounded px-2 py-1 w-full mt-1" rows={3}
-                            value={lists[key]}
-                            onChange={(e) => setLists((l) => ({ ...l, [key]: e.target.value }))} />
-                </label>
-              ))}
-          </div>
-          <button onClick={saveLists} className="bg-[#800000] text-white px-4 py-2 rounded mt-3">
-            Save lists
-          </button>
+      {showSetup && programmeId && (
+        <div className="mb-4">
+          <ProgrammeCheckinSetup programmeId={programmeId} onSaved={() => void loadProgrammes()} />
         </div>
+      )}
+
+      {programme && fields.length === 0 && !showSetup && (
+        <p className="text-sm text-amber-900 bg-amber-50 rounded px-3 py-2 mb-3">
+          Nothing to assign yet for this programme. Use "Set up assignments, meals &amp; scanners"
+          to add hostels, classes, units or anything else.
+        </p>
       )}
 
       {/* search */}
@@ -270,7 +246,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
             onSubmit={(e) => { e.preventDefault(); void search(); }}>
         <input ref={searchRef} autoFocus
                className="border rounded px-3 py-3 flex-1 min-w-[220px] text-lg"
-               placeholder="Name, phone, voucher code, or scan here"
+               placeholder="Name, phone, voucher or confirmation code — or scan"
                value={query} onChange={(e) => setQuery(e.target.value)} />
         <button type="submit" disabled={searching}
                 className="bg-[#800000] text-white px-5 py-3 rounded">
@@ -357,16 +333,14 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
             )}
 
             <div className="grid gap-3">
-              {([
-                ["Hostel", hostel, setHostel, programme?.hostel_options, "hostel-list"],
-                ["Bible study class", cls, setCls, programme?.class_options, "class-list"],
-                ["Unit", unit, setUnit, programme?.unit_options, "unit-list"],
-              ] as const).map(([label, value, setter, options, listId]) => (
-                <label key={listId} className="text-sm text-gray-700">{label}
-                  <input className="border rounded px-3 py-2 w-full mt-1" list={listId}
-                         value={value} onChange={(e) => setter(e.target.value)} />
-                  <datalist id={listId}>
-                    {(options ?? []).map((o) => <option key={o} value={o} />)}
+              {fields.map((f) => (
+                <label key={f.key} className="text-sm text-gray-700">
+                  {f.label}{f.on_tag ? "" : " (not on tag)"}
+                  <input className="border rounded px-3 py-2 w-full mt-1" list={`opts-${f.key}`}
+                         value={values[f.key] ?? ""}
+                         onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
+                  <datalist id={`opts-${f.key}`}>
+                    {(f.options ?? []).map((o) => <option key={o} value={o} />)}
                   </datalist>
                 </label>
               ))}
