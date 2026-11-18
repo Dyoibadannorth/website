@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { uploadPublicFile } from "../lib/Storage";
+import { MAX_TAG_ROWS, buildTagHtml } from "../lib/Tagprint";
 
 /**
  * "Check-in & scanning" — sits inside the programme editor (and the desk).
@@ -10,6 +12,8 @@ import { supabase } from "../lib/supabaseClient";
  *     with a one-click "meals for every day".
  *   • Scanners: volunteers added by email who can use the scanner page for
  *     this programme and nothing else.
+ *   • Tag design: an optional image that prints behind each tag, with a
+ *     live preview of a sample tag.
  *
  * Saves itself as you go, so it doesn't depend on the editor's own Save.
  *
@@ -87,6 +91,12 @@ function Setup({ programmeId, onSaved }: { programmeId: string; onSaved?: () => 
   const [scannerBusy, setScannerBusy] = useState(false);
   const [scannerMsg, setScannerMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
+  const [title, setTitle] = useState("");
+  const [design, setDesign] = useState<string | null>(null);
+  const [designBusy, setDesignBusy] = useState(false);
+  const [designMsg, setDesignMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [sample, setSample] = useState("");
+
   /* ---------- load ---------- */
   useEffect(() => {
     let live = true;
@@ -101,6 +111,8 @@ function Setup({ programmeId, onSaved }: { programmeId: string; onSaved?: () => 
         return;
       }
       setDates({ starts_at: data.starts_at, ends_at: data.ends_at });
+      setTitle(data.title ?? "");
+      setDesign(data.tag_template_url ?? null);
       setDays(dayCount(data.starts_at, data.ends_at));
       setFields(((data.assignment_fields ?? []) as AssignmentField[]).map((f) => ({
         key: f.key, label: f.label, options: f.options ?? [], on_tag: f.on_tag !== false,
@@ -226,6 +238,47 @@ function Setup({ programmeId, onSaved }: { programmeId: string; onSaved?: () => 
   };
 
   /* ---------- scanners ---------- */
+  /* ---------- tag design ---------- */
+  async function saveDesign(url: string | null) {
+    const { error } = await supabase.rpc("checkin_set_tag_design", { p_programme_id: programmeId, p_url: url });
+    if (error) {
+      setDesignMsg({ kind: "error", text: /could not find the function/i.test(error.message)
+        ? "Run onsite-checkin-tag-design.sql in Supabase first." : error.message });
+      return;
+    }
+    setDesign(url);
+    setDesignMsg({ kind: "ok", text: url ? "Design saved. Tags printed from now on use it." : "Design removed." });
+    onSavedRef.current?.();
+  }
+  async function uploadDesign(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setDesignMsg({ kind: "error", text: "Choose an image (PNG or JPG)." });
+      return;
+    }
+    setDesignBusy(true);
+    setDesignMsg(null);
+    try {
+      const url = await uploadPublicFile("programme-media", file, `tags/${programmeId}`);
+      await saveDesign(url);
+    } catch (err) {
+      setDesignMsg({ kind: "error", text: (err as Error).message });
+    }
+    setDesignBusy(false);
+  }
+
+  // a sample tag with this programme's fields and design, so you can see the result
+  useEffect(() => {
+    let live = true;
+    const rows = fields.filter((f) => f.on_tag && f.label.trim()).slice(0, MAX_TAG_ROWS)
+      .map((f) => ({ label: f.label.trim(), value: parseOptions(f.optionsText)[0] ?? "—" }));
+    void buildTagHtml([{
+      id: "0a1b2c3d-0000-4000-8000-000000000000", full_name: "Sample Name",
+      church: "St. Peter's Anglican Church", archdeaconry: "Archdeaconry", photo_url: null, rows,
+    }], { w: 62, h: 100 }, title, { style: "colour", design }).then((html) => { if (live) setSample(html); });
+    return () => { live = false; };
+  }, [fields, title, design]);
+
   async function reloadScanners() {
     const { data } = await supabase.rpc("checkin_setup_get", { p_programme_id: programmeId });
     if (mounted.current && data) setScanners((data.scanners ?? []) as Scanner[]);
@@ -319,6 +372,36 @@ function Setup({ programmeId, onSaved }: { programmeId: string; onSaved?: () => 
                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addField(customField); setCustomField(""); } }} />
         <button type="button" className="text-xs underline"
                 onClick={() => { addField(customField); setCustomField(""); }}>Add</button>
+      </div>
+
+      {/* ---- tag design ---- */}
+      <p className="font-medium text-sm">Tag design (optional)</p>
+      <p className="text-xs text-gray-500 mb-2">
+        An image the same shape as your tag (for 62 × 100 mm labels, about 620 × 1000 pixels).
+        Put your logo and event name in the top fifth: the person's details print on a white
+        panel over the rest. Without a design, tags use the DYO colours.
+      </p>
+      <div className="flex flex-wrap gap-4 items-start mb-6">
+        {sample && (
+          <iframe title="Sample tag" srcDoc={sample}
+                  style={{ width: "62mm", height: "100mm", border: "1px solid #d6c7bd", background: "#fff", flex: "0 0 auto" }} />
+        )}
+        <div className="flex flex-col gap-2 text-sm">
+          <label className={`border rounded px-3 py-1 text-xs w-fit ${designBusy ? "opacity-60" : "cursor-pointer hover:bg-gray-50"}`}>
+            {designBusy ? "Uploading…" : design ? "Replace design" : "Upload design"}
+            <input type="file" accept="image/*" className="hidden" disabled={designBusy}
+                   onChange={(e) => { void uploadDesign(e.target.files?.[0]); e.target.value = ""; }} />
+          </label>
+          {design && (
+            <button type="button" className="text-red-600 text-xs w-fit" onClick={() => void saveDesign(null)}>
+              Remove design
+            </button>
+          )}
+          <span className="text-xs text-gray-500">The sample shows the first choice of each field.</span>
+          {designMsg && (
+            <span className={`text-xs ${designMsg.kind === "ok" ? "text-green-800" : "text-red-700"}`}>{designMsg.text}</span>
+          )}
+        </div>
       </div>
 
       {/* ---- scan points ---- */}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { LABEL_SIZES, MAX_TAG_ROWS, buildTagHtml, printHtml } from "../lib/Tagprint";
+import type { TagStyle } from "../lib/Tagprint";
 import QrScanner from "./Qrscanner";
 import ProgrammeCheckinSetup from "./Programmecheckinsetup";
 import type { AssignmentField } from "./Programmecheckinsetup";
@@ -28,9 +29,11 @@ interface Person {
 interface Programme {
   id: string; title: string;
   assignment_fields: AssignmentField[] | null;
+  tag_template_url?: string | null;     // the programme's own tag design, if uploaded
 }
 
 const SIZE_KEY = "dyo.checkin.labelSize";
+const STYLE_KEY = "dyo.checkin.tagStyle";
 const NO_FIELDS: AssignmentField[] = [];
 
 /**
@@ -59,6 +62,10 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
     try { return localStorage.getItem(SIZE_KEY) ?? LABEL_SIZES[0].key; } catch { return LABEL_SIZES[0].key; }
   });
   const size = LABEL_SIZES.find((s) => s.key === sizeKey) ?? LABEL_SIZES[0];
+  const [tagStyle, setTagStyle] = useState<TagStyle>(() => {
+    try { return localStorage.getItem(STYLE_KEY) === "bw" ? "bw" : "colour"; } catch { return "colour"; }
+  });
+  const design = programme?.tag_template_url ?? null;
 
   const [stats, setStats] = useState({ registered: 0, checked_in: 0, printed: 0 });
   const [scanning, setScanning] = useState(false);
@@ -73,16 +80,27 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
   useEffect(() => { void loadProgrammes(); }, []);
 
   async function loadProgrammes() {
-    const { data, error } = await supabase
+    const first = await supabase
       .from("programmes")
-      .select("id, title, assignment_fields")
+      .select("id, title, assignment_fields, tag_template_url")
       .order("starts_at", { ascending: false });
+    let rows = first.data as Programme[] | null;
+    let error = first.error;
+    if (error && /tag_template_url/.test(error.message)) {
+      // the tag-design SQL hasn't been run yet: carry on without designs
+      const second = await supabase
+        .from("programmes")
+        .select("id, title, assignment_fields")
+        .order("starts_at", { ascending: false });
+      rows = second.data as Programme[] | null;
+      error = second.error;
+    }
     if (error) {
       setMessage({ kind: "error", text: `${error.message} (has onsite-checkin.sql been run?)` });
       return;
     }
-    setProgrammes((data ?? []) as Programme[]);
-    setProgrammeId((cur) => cur || data?.[0]?.id || "");
+    setProgrammes(rows ?? []);
+    setProgrammeId((cur) => cur || rows?.[0]?.id || "");
   }
 
   useEffect(() => {
@@ -131,7 +149,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
 
   /* ---------- tag preview ---------- */
   const tagData = useMemo(() => person && ({
-    id: person.id, full_name: person.full_name, archdeaconry: person.archdeaconry,
+    id: person.id, full_name: person.full_name, church: person.church, archdeaconry: person.archdeaconry,
     photo_url: person.photo_url,
     rows: fields.filter((f) => f.on_tag).slice(0, MAX_TAG_ROWS)
       .map((f) => ({ label: f.label, value: values[f.key] })),
@@ -140,9 +158,10 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
   useEffect(() => {
     if (!tagData) { setPreview(""); return; }
     let live = true;
-    void buildTagHtml([tagData], size, programme?.title ?? "").then((html) => { if (live) setPreview(html); });
+    void buildTagHtml([tagData], size, programme?.title ?? "", { style: tagStyle, design })
+      .then((html) => { if (live) setPreview(html); });
     return () => { live = false; };
-  }, [tagData, size.w, size.h, programme?.title]);
+  }, [tagData, size.w, size.h, programme?.title, tagStyle, design]);
 
   /* ---------- actions ---------- */
   async function save(print: boolean) {
@@ -154,7 +173,7 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
     setMessage(null);
     try {
       if (print) {
-        const html = await buildTagHtml([tagData], size, programme?.title ?? "");
+        const html = await buildTagHtml([tagData], size, programme?.title ?? "", { style: tagStyle, design });
         await printHtml(html);
       }
       const { error } = await supabase.rpc("checkin_save", {
@@ -183,6 +202,11 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
     try { localStorage.setItem(SIZE_KEY, key); } catch { /* fine without it */ }
   }
 
+  function chooseStyle(style: TagStyle) {
+    setTagStyle(style);
+    try { localStorage.setItem(STYLE_KEY, style); } catch { /* fine without it */ }
+  }
+
   const payBadge = (s: string) =>
     s === "paid" ? ["Paid", "bg-green-100 text-green-800"]
     : s === "pending" ? ["Not paid", "bg-red-100 text-red-800"]
@@ -208,6 +232,11 @@ export default function AdminCheckin({ programmeId: fixedProgrammeId, onChanged 
           <select className="border px-3 py-2 rounded" value={sizeKey}
                   onChange={(e) => chooseSize(e.target.value)} title="Label size">
             {LABEL_SIZES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+          <select className="border px-3 py-2 rounded" value={tagStyle}
+                  onChange={(e) => chooseStyle(e.target.value as TagStyle)} title="Print style">
+            <option value="colour">Colour</option>
+            <option value="bw">Black &amp; white (thermal)</option>
           </select>
         </div>
       </div>
