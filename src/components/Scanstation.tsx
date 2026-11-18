@@ -219,6 +219,8 @@ export default function ScanStation() {
   /* ---------- view ---------- */
   const shell = (body: ReactNode) => (
     <div className="min-h-screen bg-gray-950 text-white">
+      {/* the site-wide lucky-draw pop-up would cover the camera on a phone */}
+      <style>{".ld-widget{display:none !important}"}</style>
       <div className="max-w-md mx-auto px-4 py-4">
         <p className="text-xs uppercase tracking-widest text-gray-400 mb-3">DYO scanner</p>
         {body}

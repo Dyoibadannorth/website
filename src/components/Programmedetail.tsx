@@ -9,6 +9,7 @@ import {
 } from "../lib/Attendingcard";
 import Navbar from "./Navbar";
 import SiteFooter from "./Sitefooter";
+import CheckinQR from "./Checkinqr";
 import "./Programmes.css";
 
 interface ExtraField {
@@ -481,7 +482,10 @@ export default function ProgrammeDetail() {
                   </button>
                 </>
               ) : (
-                <p className="pg-confirmed">Confirmed · {registration.id.slice(0, 8).toUpperCase()}</p>
+                <>
+                  <p className="pg-confirmed">Confirmed · {registration.id.slice(0, 8).toUpperCase()}</p>
+                  <CheckinQR registrationId={registration.id} />
+                </>
               )}
 
               <hr />

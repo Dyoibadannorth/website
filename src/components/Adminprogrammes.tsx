@@ -3,6 +3,7 @@ import { supabase } from "./../lib/supabaseClient";
 import { slugify, uploadPublicFile } from "./../lib/Storage";
 import { naira } from "./../lib/Payments";
 import { useAuth } from "./Authcontext";
+import ProgrammeCheckinSetup from "./Programmecheckinsetup";
 
 interface ExtraField {
   key: string; label: string; type: "text" | "select" | "textarea";
@@ -376,6 +377,9 @@ export default function AdminProgrammes() {
             </div>
           ))}
         </div>
+
+        {/* hostels, classes, units…, meals & sessions to scan, and scanners (saves by itself) */}
+        <ProgrammeCheckinSetup programmeId={editing} />
 
         <label className="flex items-center gap-2 mt-5 text-sm">
           <input type="checkbox" checked={form.is_published}

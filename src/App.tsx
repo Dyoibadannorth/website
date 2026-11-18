@@ -73,6 +73,7 @@ import TournamentsPage from "./components/Tournamentspage";
 import ResetPassword from "./components/Resetpassword";  // match your file's casing
 import PageTracker from "./components/PageTracker";
 import AdminAnalytics from "./components/Adminanalytics";
+import ScanStation from "./components/Scanstation";
    // inside <BrowserRouter>, before <Routes>
    
 
@@ -148,6 +149,9 @@ export default function App() {
             <Route path="/birthdays" element={<BirthdayBanner />} />
             <Route path="/tournaments/:slug/register" element={<TournamentRegister />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+
+            {/* ============ SCANNER (meals, sessions) — outside admin: volunteers aren't admins ============ */}
+            <Route path="/scan" element={<ScanStation />} />
 
             {/* ============ ADMIN ============ */}
             <Route path="/admin" element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
