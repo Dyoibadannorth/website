@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import "./Auth.css";
 import logo from "../assets/LOGO.jpeg";
 
 /**
- * Reset password — where the emailed link lands. Supabase puts a recovery
- * session in place when the user arrives here from the email, so we can set
- * a new password directly.
+ * Reset password — where the emailed link lands.
+ *
+ * Two kinds of link work:
+ *   • our own email template: /reset-password?token_hash=…&type=recovery.
+ *     The link points at our own domain (so mail filters don't see a reset
+ *     email linking to someone else's site); we confirm it here.
+ *   • Supabase's default link, which signs the user in on the way here.
  */
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -17,17 +21,34 @@ export default function ResetPassword() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [linkError, setLinkError] = useState(false);
+  const verifying = useRef(false);
 
   useEffect(() => {
-    // When the user arrives from the email link, Supabase fires a
+    // When the user arrives from Supabase's own link, it fires a
     // PASSWORD_RECOVERY event and establishes a temporary session.
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") setReady(true);
     });
-    // Also check if a session already exists (link already processed)
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) setReady(true);
-    });
+
+    const params = new URLSearchParams(window.location.search);
+    const tokenHash = params.get("token_hash");
+    if (tokenHash && !verifying.current) {
+      // Our own link: confirm it once (React may run this twice in development).
+      verifying.current = true;
+      void supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" }).then(async ({ error: err }) => {
+        // don't leave the one-time code in the address bar or history
+        window.history.replaceState(null, "", window.location.pathname);
+        if (!err) { setReady(true); return; }
+        const { data } = await supabase.auth.getSession();
+        if (data.session) setReady(true); else setLinkError(true);
+      });
+    } else if (!tokenHash) {
+      // Also check if a session already exists (link already processed)
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session) setReady(true);
+      });
+    }
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -53,6 +74,11 @@ export default function ResetPassword() {
 
         {done ? (
           <p className="auth-note">Password updated. Taking you to sign in…</p>
+        ) : linkError ? (
+          <p className="auth-note">
+            This reset link has expired or has already been used. Go back to{" "}
+            <a href="/login">sign in</a> and tap "Forgot your password?" to get a new one.
+          </p>
         ) : !ready ? (
           <p className="auth-note">
             Open this page from the reset link in your email. If you came from the
