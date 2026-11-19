@@ -14,6 +14,8 @@ import { MAX_TAG_ROWS, buildTagHtml } from "../lib/Tagprint";
  *     this programme and nothing else.
  *   • Tag design: an optional image that prints behind each tag, with a
  *     live preview of a sample tag.
+ *   • Medics: added by email; they keep medical records on the medic page.
+ *     Admins here can add or remove medics but can't read the records.
  *
  * Saves itself as you go, so it doesn't depend on the editor's own Save.
  *
@@ -23,6 +25,7 @@ import { MAX_TAG_ROWS, buildTagHtml } from "../lib/Tagprint";
 export interface AssignmentField { key: string; label: string; options: string[]; on_tag: boolean }
 export interface ScanPoint { key: string; label: string; needs_checkin: boolean }
 interface Scanner { user_id: string; full_name: string | null; email: string | null }
+type Medic = Scanner;
 
 type FieldDraft = AssignmentField & { optionsText: string };
 
@@ -302,6 +305,61 @@ function Setup({ programmeId, onSaved }: { programmeId: string; onSaved?: () => 
     void reloadScanners();
   }
 
+  /* ---------- medics (they keep medical records; admins only manage the list) ---------- */
+  const [medics, setMedics] = useState<Medic[]>([]);
+  const [medicsOff, setMedicsOff] = useState("");
+  const [medicEmail, setMedicEmail] = useState("");
+  const [medicBusy, setMedicBusy] = useState(false);
+  const [medicMsg, setMedicMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [medicRecords, setMedicRecords] = useState<{ count: number; ended: boolean } | null>(null);
+
+  async function reloadMedics() {
+    const { data, error } = await supabase.rpc("medic_list", { p_programme_id: programmeId });
+    if (!mounted.current) return;
+    if (error) {
+      setMedicsOff(/could not find the function/i.test(error.message)
+        ? "Run onsite-medical.sql in Supabase to turn on the medic page." : error.message);
+      return;
+    }
+    setMedicsOff("");
+    setMedics((data ?? []) as Medic[]);
+  }
+  // only the super admin gets a row here: how many records, and a reminder once the programme is over
+  async function loadMedicRecords() {
+    const { data } = await supabase.rpc("medic_programmes");
+    const row = ((data ?? []) as { id: string; ends_at: string | null; records: number; is_super_admin: boolean }[])
+      .find((p) => p.id === programmeId && p.is_super_admin);
+    if (!mounted.current) return;
+    setMedicRecords(row && Number(row.records) > 0
+      ? { count: Number(row.records), ended: !!row.ends_at && new Date(row.ends_at).getTime() < Date.now() }
+      : null);
+  }
+  useEffect(() => {
+    void reloadMedics();
+    void loadMedicRecords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programmeId]);
+
+  async function addMedic() {
+    const email = medicEmail.trim();
+    if (!email) return;
+    setMedicBusy(true);
+    setMedicMsg(null);
+    const { error } = await supabase.rpc("medic_add", { p_programme_id: programmeId, p_email: email });
+    setMedicBusy(false);
+    if (error) { setMedicMsg({ kind: "error", text: error.message }); return; }
+    setMedicEmail("");
+    setMedicMsg({ kind: "ok", text: `${email} is now a medic for this programme.` });
+    void reloadMedics();
+  }
+  async function removeMedic(m: Medic) {
+    if (!confirm(`Remove ${m.full_name || m.email} as a medic? They won't be able to open medical records for this programme any more.`)) return;
+    const { error } = await supabase.rpc("medic_remove", { p_programme_id: programmeId, p_user_id: m.user_id });
+    if (error) { setMedicMsg({ kind: "error", text: error.message }); return; }
+    setMedicMsg(null);
+    void reloadMedics();
+  }
+
   /* ---------- view ---------- */
   if (loading) return <div className="border rounded p-4 mt-6 text-sm text-gray-500">Loading check-in setup…</div>;
   if (loadError) {
@@ -315,6 +373,7 @@ function Setup({ programmeId, onSaved }: { programmeId: string; onSaved?: () => 
 
   const onTagCount = fields.filter((f) => f.on_tag && f.label.trim()).length;
   const scanUrl = `/scan?programme=${programmeId}`;
+  const medicUrl = `/medic?programme=${programmeId}`;
 
   return (
     <div className="border rounded p-4 mt-6 bg-white">
@@ -501,6 +560,61 @@ function Setup({ programmeId, onSaved }: { programmeId: string; onSaved?: () => 
         Scanner page: <a className="underline" href={scanUrl} target="_blank" rel="noopener">{window.location.origin}{scanUrl}</a>
         {" "}(share it with the scanners; they can bookmark it on their phones).
       </p>
+
+      {/* ---- medics ---- */}
+      <p className="font-medium text-sm mt-6">Medics</p>
+      <p className="text-xs text-gray-500 mb-2">
+        Medics on duty keep participants' medical records on the medic page: they scan a tag or type a name,
+        read the record and add to it. Only these medics and the super admin can read the records. Admins can
+        add or remove medics here but can't open the records.
+      </p>
+
+      {medicsOff ? (
+        <p className="text-xs text-red-700">{medicsOff}</p>
+      ) : (
+        <>
+          {medics.length > 0 && (
+            <ul className="text-sm mb-2 divide-y border rounded">
+              {medics.map((m) => (
+                <li key={m.user_id} className="flex justify-between items-center px-2 py-1">
+                  <span>{m.full_name || "—"} <span className="text-gray-500">{m.email}</span></span>
+                  <button type="button" className="text-red-600 text-xs" onClick={() => removeMedic(m)}>Remove</button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex flex-wrap gap-2 items-center">
+            <input type="email" className="border rounded px-2 py-1 text-sm flex-1 min-w-[200px]"
+                   placeholder="Medic's email (they must have an account)"
+                   value={medicEmail} onChange={(e) => setMedicEmail(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addMedic(); } }} />
+            <button type="button" onClick={addMedic} disabled={medicBusy}
+                    className="bg-gray-800 text-white px-3 py-1 rounded text-xs">
+              {medicBusy ? "Adding…" : "Add medic"}
+            </button>
+          </div>
+          {medicMsg && (
+            <p className={`text-xs mt-1 ${medicMsg.kind === "ok" ? "text-green-800" : "text-red-700"}`}>
+              {medicMsg.text}
+            </p>
+          )}
+
+          {medicRecords && (
+            <p className={`text-xs mt-3 rounded px-2 py-1 ${medicRecords.ended ? "bg-amber-50 text-amber-900" : "text-gray-600"}`}>
+              {medicRecords.count} medical record{medicRecords.count === 1 ? "" : "s"} for this programme.
+              {medicRecords.ended
+                ? " The programme has ended: delete them on the medic page once they're no longer needed."
+                : " After the programme, you can delete them all on the medic page."}
+            </p>
+          )}
+
+          <p className="text-xs text-gray-600 mt-3">
+            Medic page: <a className="underline" href={medicUrl} target="_blank" rel="noopener">{window.location.origin}{medicUrl}</a>
+            {" "}(share it with the medics only).
+          </p>
+        </>
+      )}
     </div>
   );
 }

@@ -74,6 +74,7 @@ import ResetPassword from "./components/Resetpassword";  // match your file's ca
 import PageTracker from "./components/PageTracker";
 import AdminAnalytics from "./components/Adminanalytics";
 import ScanStation from "./components/Scanstation";
+import MedicStation from "./components/Medicstation";
    // inside <BrowserRouter>, before <Routes>
    
 
@@ -152,6 +153,8 @@ export default function App() {
 
             {/* ============ SCANNER (meals, sessions) — outside admin: volunteers aren't admins ============ */}
             <Route path="/scan" element={<ScanStation />} />
+            {/* medics on duty (medical records) — the page checks who may see what */}
+            <Route path="/medic" element={<MedicStation />} />
 
             {/* ============ ADMIN ============ */}
             <Route path="/admin" element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
