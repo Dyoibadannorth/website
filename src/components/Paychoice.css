@@ -1,0 +1,317 @@
+/* ============================================================
+   "How would you like to pay?" (Paychoice.tsx)
+
+   Plain class names on purpose: RegistrationForm.css styles every
+   <button> and <input> on the site, and those rules beat Tailwind
+   classes. Classes here are more specific than those, so the box
+   looks the same on every page.
+   ============================================================ */
+
+.pc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(30, 8, 8, 0.55);
+  font-family: inherit;
+}
+@media (min-width: 640px) {
+  .pc-overlay { align-items: center; padding: 24px; }
+}
+
+.pc-box {
+  width: 100%;
+  max-width: 460px;
+  max-height: 92vh;
+  max-height: 92dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #fff;
+  color: #241a1a;
+  border-radius: 18px 18px 0 0;
+  padding: 18px 18px 22px;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.25);
+  text-align: left;
+  line-height: 1.45;
+  outline: none;
+  animation: pc-rise 0.22s ease-out;
+}
+@media (min-width: 640px) {
+  .pc-box { border-radius: 16px; padding: 22px 24px 26px; }
+}
+@keyframes pc-rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.pc-box > * + * { margin-top: 14px; }
+
+.pc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pc-head h2 {
+  margin: 0;
+  font-size: 1.22rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #241a1a;
+}
+.pc-close {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  margin: -6px -6px 0 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f4eeea;
+  color: #5c0000;
+  font-size: 1.5rem;
+  line-height: 1;
+  font-weight: 400;
+  cursor: pointer;
+}
+.pc-close:hover { background: #ead9d3; color: #5c0000; }
+
+.pc-amount {
+  border-radius: 12px;
+  background: #800000;
+  color: #fff;
+  padding: 12px 14px;
+}
+.pc-amount span { display: block; font-size: 0.82rem; opacity: 0.85; overflow-wrap: anywhere; }
+.pc-amount strong {
+  display: block;
+  font-size: 1.85rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: #ffd700;
+}
+
+.pc-option {
+  border: 1px solid #e8ded7;
+  border-radius: 14px;
+  padding: 14px;
+}
+.pc-option > * + * { margin-top: 12px; }
+.pc-option.is-off { background: #faf7f5; }
+.pc-option.is-off .pc-option-title,
+.pc-option.is-off .pc-icon { opacity: 0.55; }
+.pc-option-head { display: flex; gap: 12px; align-items: flex-start; }
+.pc-option-title { margin: 0; font-weight: 700; font-size: 1rem; color: #241a1a; }
+.pc-option-text { margin: 2px 0 0; font-size: 0.88rem; color: #6e625e; }
+.pc-option.is-off .pc-option-text { color: #8a6212; font-weight: 600; }
+
+.pc-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #f4eeea;
+  color: #800000;
+}
+.pc-icon svg, .pc-drop-icon svg, .pc-done svg, .pc-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pc-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 0.9rem;
+  color: #241a1a;
+  cursor: pointer;
+}
+.pc-checkbox {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: #800000;
+  cursor: pointer;
+}
+
+/* buttons — every property set, so the site-wide button rule can't leak in */
+.pc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 1px solid #800000;
+  border-radius: 12px;
+  background: #800000;
+  color: #fff;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.pc-btn:hover { background: #5c0000; color: #fff; }
+.pc-btn:disabled,
+.pc-btn:disabled:hover {
+  background: #cdbdb7;
+  border-color: #cdbdb7;
+  color: #fff;
+  cursor: not-allowed;
+}
+.pc-btn--quiet { background: #fff; color: #800000; border-color: #d6c7bd; }
+.pc-btn--quiet:hover { background: #f8f1ee; color: #800000; }
+.pc-btn--quiet:disabled,
+.pc-btn--quiet:disabled:hover { background: #fff; color: #b9a8a2; border-color: #e8ded7; }
+.pc-btn--whatsapp { background: #1a7f45; border-color: #1a7f45; color: #fff; }
+.pc-btn--whatsapp:hover { background: #136536; color: #fff; }
+.pc-btn--whatsapp svg { fill: currentColor; stroke: none; }
+
+.pc-lede { margin-bottom: 0; font-size: 0.98rem; }
+.pc-small { font-size: 0.83rem; color: #6e625e; margin-bottom: 0; }
+.pc-center { text-align: center; }
+.pc-box p { margin-bottom: 0; }
+
+.pc-details {
+  margin: 14px 0 0;
+  border: 1px solid #e8ded7;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.pc-details div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.pc-details div + div { border-top: 1px solid #f0e8e3; }
+.pc-details dt { font-size: 0.76rem; letter-spacing: 0.04em; text-transform: uppercase; color: #6e625e; }
+.pc-details dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.02rem;
+  color: #241a1a;
+  overflow-wrap: anywhere;
+}
+.pc-mono { font-variant-numeric: tabular-nums; letter-spacing: 0.03em; }
+
+.pc-copy {
+  flex: none;
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #f4eeea;
+  color: #800000;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+.pc-copy:hover { background: #ead9d3; color: #800000; }
+.pc-copy.is-done { background: #e3f3e8; color: #1b6b34; }
+
+.pc-note, .pc-error {
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  background: #eef3fb;
+  color: #1f3d66;
+}
+.pc-note--warn { background: #fdf4e1; color: #7a5410; }
+.pc-note--ok { background: #e7f4eb; color: #1b6b34; font-weight: 600; }
+.pc-error { background: #fdecec; color: #a5231f; font-weight: 600; }
+
+/* upload */
+.pc-drop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 14px;
+  border: 2px dashed #d6c7bd;
+  border-radius: 14px;
+  background: #fdfaf8;
+  text-align: center;
+  cursor: pointer;
+}
+.pc-drop:hover, .pc-drop:focus-within { border-color: #800000; }
+.pc-drop.has-file { border-style: solid; border-color: #c9b2a8; }
+.pc-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+  border: 0;
+  overflow: hidden;
+}
+.pc-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #f4eeea;
+  color: #800000;
+}
+.pc-drop-text { font-size: 0.88rem; color: #6e625e; overflow-wrap: anywhere; }
+.pc-drop-text b { color: #241a1a; }
+.pc-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.pc-field { display: block; }
+.pc-field span { display: block; margin-bottom: 4px; font-size: 0.85rem; font-weight: 600; color: #241a1a; }
+.pc-field em { font-style: normal; font-weight: 400; color: #6e625e; }
+.pc-input {
+  display: block;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #d6c7bd;
+  border-radius: 10px;
+  background: #fff;
+  color: #241a1a;
+  font: inherit;
+  font-size: 16px;   /* below 16px iOS zooms in */
+  resize: vertical;
+}
+.pc-input:focus { outline: 2px solid #800000; outline-offset: 0; border-color: #800000; }
+
+.pc-done {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin-left: auto;
+  margin-right: auto;
+  border-radius: 50%;
+  background: #e7f4eb;
+  color: #1b6b34;
+}
+.pc-done svg { width: 34px; height: 34px; stroke-width: 2.4; }

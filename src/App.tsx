@@ -46,6 +46,7 @@ import AdminProducts from "./components/Adminproducts";
 import AdminOrders from "./components/Adminorders";
 import AdminAnnouncements from "./components/Adminannouncements";
 import AdminReceipts from "./components/Adminreceipts";
+import AdminTransfers from "./components/Admintransfers";
 import AdminLeadership from "./components/Adminleadership";
 import AdminCarousel from "./components/Admincarousel";
 import AdminGallery from "./components/Admingallery";
@@ -178,6 +179,7 @@ export default function App() {
               <Route path="audit" element={<RequireSection section="audit"><AdminAudit /></RequireSection>} />
               <Route path="donations" element={<RequireSection section="donations"><AdminDonations /></RequireSection>} />
               <Route path="receipts" element={<RequireSection section="receipts"><AdminReceipts /></RequireSection>} />
+              <Route path="transfers" element={<RequireSection section="transfers"><AdminTransfers /></RequireSection>} />
               <Route path="birthdays" element={<RequireSection section="birthdays"><AdminBirthdays /></RequireSection>} />
 
               <Route path="members" element={<RequireSection section="members"><AdminMembers /></RequireSection>} />

@@ -4,6 +4,7 @@ import { slugify, uploadPublicFile } from "./../lib/Storage";
 import { naira } from "./../lib/Payments";
 import { useAuth } from "./Authcontext";
 import ProgrammeCheckinSetup from "./Programmecheckinsetup";
+import ProgrammePaymentSetup from "./Programmepaymentsetup";
 
 interface ExtraField {
   key: string; label: string; type: "text" | "select" | "textarea";
@@ -284,6 +285,9 @@ export default function AdminProgrammes() {
                 payment page to pay for their members in bulk. Share it only with
                 the people meant to pay.
               </p>
+
+              {/* which bank account transfers for this programme go to (its own Save button) */}
+              <ProgrammePaymentSetup programmeId={editing} />
             </div>
           )}
         </div>

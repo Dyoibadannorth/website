@@ -90,7 +90,8 @@ export default function DonationPage() {
 
     setBusy(false);
 
-    if (result.status === "success") {
+    // "submitted": paid by bank transfer; the receipt page shows it until an admin confirms
+    if (result.status === "success" || result.status === "submitted") {
       navigate(`/success-donation/${data.id}`, { replace: true });
     } else if (result.status === "failed") {
       setError(result.message ?? "That payment didn't complete.");

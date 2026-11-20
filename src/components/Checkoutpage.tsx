@@ -152,7 +152,8 @@ export default function CheckoutPage() {
 
     setBusy(false);
 
-    if (result.status === "success") {
+    // "submitted": paid by bank transfer; the order page shows it until an admin confirms
+    if (result.status === "success" || result.status === "submitted") {
       clear();
       navigate(`/orders/${order.id}`, { replace: true });
     } else if (result.status === "failed") {

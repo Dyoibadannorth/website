@@ -1,3 +1,4 @@
+import { createElement } from "react";
 import { supabase } from "./supabaseClient";
 import type { FlutterwaveResponse } from "../types/flutterwave";
 
@@ -38,12 +39,87 @@ export interface PayArgs {
 }
 
 export interface PayResult {
-  status: "success" | "failed" | "closed";
+  // "submitted": paid by bank transfer and sent the receipt; it's confirmed
+  // once an admin checks it, so treat it like a pending payment.
+  status: "success" | "failed" | "closed" | "submitted";
   message?: string;
+}
+
+/** What the "How would you like to pay?" box shows. The database works it out. */
+export interface TransferDetails {
+  amount_naira: number;
+  reference_code: string;            // what they write in the transfer narration
+  label: string;                     // "Registration · Grace Adeyemi · Youth Convention 2026"
+  paid: boolean;
+  card_enabled: boolean;             // Flutterwave, switched on in Admin → Bank transfers
+  account: {
+    bank_name: string; account_name: string; account_number: string;
+    whatsapp_number: string | null; instructions: string | null;
+  } | null;                          // null: no account set up yet
+  last: {                            // the latest receipt they sent for this, if any
+    status: "pending" | "approved" | "rejected";
+    submitted_at: string;
+    reject_reason: string | null;
+  } | null;
 }
 
 /**
  * One entry point for every payment on the site.
+ *
+ * Asks how they'd like to pay:
+ *   • Card (Flutterwave) — only when switched on in Admin → Bank transfers.
+ *   • Bank transfer — they transfer, upload the receipt and send it to the
+ *     admin on WhatsApp; an admin ticks it paid (see Paychoice.tsx).
+ *
+ * The amount always comes from the database, never from the browser.
+ * If bank-transfers.sql hasn't been run yet, it's card only, as before.
+ */
+export async function startPayment(args: PayArgs): Promise<PayResult> {
+  const { data, error } = await supabase.rpc("transfer_details", {
+    p_purpose: args.purpose,
+    p_reference_id: args.referenceId,
+  });
+  if (error) {
+    if (/could not find the function|schema cache/i.test(error.message)) return payByCard(args);
+    return { status: "failed", message: error.message };
+  }
+  const choice = await askHowToPay(args, data as TransferDetails);
+  return choice === "card" ? payByCard(args) : choice;
+}
+
+/** Opens the "How would you like to pay?" box and waits for it to finish. */
+async function askHowToPay(args: PayArgs, details: TransferDetails): Promise<PayResult | "card"> {
+  const [{ createRoot }, { default: PayChoice }] = await Promise.all([
+    import("react-dom/client"),
+    import("../components/Paychoice"),
+  ]);
+  return new Promise((resolve) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onDone = (result: PayResult | "card") => {
+      document.body.style.overflow = overflow;
+      resolve(result);
+      // unmount after the click that closed it has finished
+      setTimeout(() => { root.unmount(); host.remove(); }, 0);
+    };
+    root.render(createElement(PayChoice, { args, details, onDone }));
+  });
+}
+
+/** The latest bank-transfer receipt for something, for pages that show status. */
+export async function transferStatus(purpose: PaymentPurpose, referenceId: string): Promise<TransferDetails["last"]> {
+  const { data, error } = await supabase.rpc("transfer_details", {
+    p_purpose: purpose,
+    p_reference_id: referenceId,
+  });
+  return error ? null : (data as TransferDetails).last;
+}
+
+/**
+ * Card payment through Flutterwave.
  *
  * 1. Writes a `payments` row holding the amount WE expect. The browser never
  *    gets to decide what was owed.
@@ -51,7 +127,7 @@ export interface PayResult {
  * 3. Hands the transaction to the verify-payment Edge Function, which asks
  *    Flutterwave directly and is the only thing that can mark anything paid.
  */
-export async function startPayment(args: PayArgs): Promise<PayResult> {
+async function payByCard(args: PayArgs): Promise<PayResult> {
   const publicKey = import.meta.env.VITE_FLW_PUBLIC_KEY as string | undefined;
   if (!publicKey) {
     return { status: "failed", message: "Payment isn't configured yet. Contact the youth office." };

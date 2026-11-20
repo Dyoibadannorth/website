@@ -20,6 +20,7 @@ interface Counts {
   leaders: number;
   photos: number;
   drafts_blog: number;
+  transfers: number;
 }
 
 const Icon = ({ d }: { d: string }) => (
@@ -35,6 +36,7 @@ const ICONS = {
   audit: "M9 12h6m-6 4h6m2 4H7a2 2 0 01-2-2V5a2 2 0 012-2h5.5L19 8.5V18a2 2 0 01-2 2z",
   donations: "M12 8c-1.1 0-2 .9-2 2s.9 2 2 2 2 .9 2 2-.9 2-2 2m0-8V4m0 12v2m8-6a8 8 0 11-16 0 8 8 0 0116 0z",
   receipts: "M9 14l2 2 4-4m1 7H6a2 2 0 01-2-2V5a2 2 0 012-2h8l4 4v11a2 2 0 01-2 2z",
+  transfers: "M3 9.5 12 4l9 5.5M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18",
   draws: "M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21.4 8 14 2 9.4h7.6z",
   birthdays: "M12 6V2m0 4a4 4 0 00-4 4v2h8v-2a4 4 0 00-4-4zM4 14h16v6H4zM4 14a2 2 0 012-2h12a2 2 0 012 2",
   tournaments: "M12 2a10 10 0 100 20 10 10 0 000-20zM12 8l1.5 3 3.3.3-2.5 2.2.8 3.2L12 15l-2.9 1.9.8-3.2-2.5-2.2 3.3-.3z",
@@ -60,7 +62,7 @@ export default function AdminLayout() {
 
   const [open, setOpen] = useState(false);
   const [counts, setCounts] = useState<Counts>({
-    drafts: 0, unpaid: 0, toPack: 0, leaders: 0, photos: 0, drafts_blog: 0,
+    drafts: 0, unpaid: 0, toPack: 0, leaders: 0, photos: 0, drafts_blog: 0, transfers: 0,
   });
 
   // Close the drawer whenever the route changes, or it stays open over
@@ -72,13 +74,15 @@ export default function AdminLayout() {
   async function loadCounts() {
     const head = { count: "exact" as const, head: true };
 
-    const [drafts, unpaid, toPack, leaders, photos, blogDrafts] = await Promise.all([
+    const [drafts, unpaid, toPack, leaders, photos, blogDrafts, transfers] = await Promise.all([
       supabase.from("programmes").select("id", head).eq("is_published", false),
       supabase.from("programme_registrations").select("id", head).eq("payment_status", "pending"),
       supabase.from("orders").select("id", head).eq("status", "paid").eq("fulfilment", "unfulfilled"),
       supabase.from("leadership").select("id", head).eq("is_active", true),
       supabase.from("gallery_images").select("id", head).eq("is_published", true),
       supabase.from("blog_posts").select("id", head).eq("is_published", false),
+      // bank-transfer receipts waiting to be checked (0 if not set up / no access)
+      canAccess("transfers") ? supabase.rpc("transfer_pending_count") : Promise.resolve({ data: 0 }),
     ]);
 
     setCounts({
@@ -88,6 +92,7 @@ export default function AdminLayout() {
       leaders: leaders.count ?? 0,
       photos: photos.count ?? 0,
       drafts_blog: blogDrafts.count ?? 0,
+      transfers: typeof transfers.data === "number" ? transfers.data : 0,
     });
   }
 
@@ -183,6 +188,8 @@ export default function AdminLayout() {
                 <Item to="/admin/donations" icon={ICONS.donations} label="Donations" />}
               {canAccess("receipts") &&
                 <Item to="/admin/receipts" icon={ICONS.receipts} label="Receipts" />}
+              {canAccess("transfers") &&
+                <Item to="/admin/transfers" icon={ICONS.transfers} label="Bank transfers" count={counts.transfers} alert />}
               {canAccess("draws") &&
                 <Item to="/admin/draws" icon={ICONS.draws} label="Lucky draws" />}
 

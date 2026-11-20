@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "./Authcontext";
-import { naira, startPayment } from "../lib/Payments";
+import { naira, startPayment, transferStatus } from "../lib/Payments";
 import {
   composeAttendingCard, uploadAttendingCard, shareCard,
   DEFAULT_CARD_CONFIG,
@@ -33,6 +33,8 @@ export default function ProgrammeDetail() {
   const [notice, setNotice] = useState("");
   const [cardBlob, setCardBlob] = useState<Blob | null>(null);
   const [cardPreview, setCardPreview] = useState<string | null>(null);
+  // their latest bank-transfer receipt for this registration (waiting / not accepted)
+  const [transfer, setTransfer] = useState<Awaited<ReturnType<typeof transferStatus>>>(null);
 
   // Paid-programme registration: after the row is created, we ask HOW they're
   // paying before taking money. null = chooser not open.
@@ -66,6 +68,8 @@ export default function ProgrammeDetail() {
         .maybeSingle();
       setRegistration(reg);
       if (reg?.attending_card_url) setCardPreview(reg.attending_card_url);
+      setTransfer(reg?.payment_status === "pending" && reg.amount_naira > 0
+        ? await transferStatus("registration", reg.id) : null);
     }
     setLoading(false);
   }
@@ -283,6 +287,10 @@ export default function ProgrammeDetail() {
     setBusy(false);
 
     if (result.status === "success") { setNotice(""); void load(); }
+    else if (result.status === "submitted") {
+      setNotice("Receipt sent. Your place is confirmed once an admin checks your transfer.");
+      void load();
+    }
     else if (result.status === "failed") setNotice(result.message ?? "Payment didn't go through.");
   }
 
@@ -468,8 +476,24 @@ export default function ProgrammeDetail() {
           {registration && (
             <>
               <h3>You're registered</h3>
-              {owes ? (
+              {owes && transfer?.status === "pending" ? (
                 <>
+                  <p className="pg-note">
+                    Transfer receipt sent {new Date(transfer.submitted_at).toLocaleString("en-NG",
+                      { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}.
+                    {" "}Your place is confirmed once an admin checks it, so there's no need to pay again.
+                  </p>
+                  <button className="pg-button pg-button--quiet" onClick={() => pay()} disabled={busy}>
+                    Send a different receipt
+                  </button>
+                </>
+              ) : owes ? (
+                <>
+                  {transfer?.status === "rejected" && (
+                    <p className="pg-note pg-note--warn">
+                      Your transfer receipt wasn't accepted{transfer.reject_reason ? `: ${transfer.reject_reason}` : "."}
+                    </p>
+                  )}
                   <p className="pg-note pg-note--warn">
                     Your place is held until payment clears.
                   </p>
