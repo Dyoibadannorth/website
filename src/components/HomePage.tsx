@@ -20,9 +20,13 @@ import BirthdayBanner from "./Birthdaybanner";
 import LiveMatches from "./Livematches";
 
 /**
+ * The slides come from Admin → Slideshow (the carousel_slides table): the
+ * ones switched to "Showing", in their order there. These five built-in
+ * slides are only the fallback, shown when no slide is switched on there
+ * (or the slides can't be loaded).
+ *
  * Each slide carries its own words, so the write-up changes as the images
  * cycle instead of one fixed caption sitting over five different photos.
- * Edit these freely — the carousel uses however many you give it.
  */
 const SLIDES = [
   {
@@ -62,6 +66,39 @@ const SLIDES = [
   },
 ];
 
+interface HeroSlide {
+  key: string;
+  image: string;
+  eyebrow: string | null;
+  heading: string;
+  body: string | null;
+  cta: { label: string; to: string; external: boolean } | null;
+}
+
+const BUILT_IN: HeroSlide[] = SLIDES.map((s, i) => ({
+  key: `built-in-${i}`, image: s.image, eyebrow: s.eyebrow, heading: s.heading, body: s.body,
+  cta: { label: s.cta.label, to: s.cta.to, external: false },
+}));
+
+/**
+ * The button on a slide from the admin page. Site pages ("/programmes", or
+ * "programmes") stay inside the site; full web addresses, email and phone
+ * links open as normal links; anything else (e.g. "javascript:") is dropped.
+ */
+function slideButton(label: string | null, url: string | null): HeroSlide["cta"] {
+  const l = label?.trim();
+  let u = url?.trim();
+  if (!l || !u) return null;
+  if (/^www\./i.test(u)) u = `https://${u}`;
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(u)) return { label: l, to: u, external: true };
+  if (/^[a-z][a-z0-9+.-]*:/i.test(u) || u.startsWith("//")) return null;
+  return { label: l, to: u.startsWith("/") ? u : `/${u}`, external: false };
+}
+
+// Kept between visits to the home page in the same tab, so coming back
+// doesn't flash an empty banner while the slides load again.
+let slideCache: HeroSlide[] | null = null;
+
 /** Shown only if the leadership table is empty or hasn't loaded yet. */
 const FALLBACK_CLERGY = [
   { id: "f1", photo_url: bishop, full_name: "Most Rev'd Williams Aladekugbe",
@@ -77,6 +114,8 @@ export default function HomePage() {
   const [current, setCurrent] = useState(0);
   const [paused, setPaused] = useState(false);
   const [leadership, setLeadership] = useState<any[]>([]);
+  // null while loading: the banner stays plain maroon instead of flashing the wrong slide
+  const [adminSlides, setAdminSlides] = useState<HeroSlide[] | null>(slideCache);
 
   const [popup, setPopup] = useState<any>(null);
   const [programmes, setProgrammes] = useState<any[]>([]);
@@ -85,10 +124,34 @@ export default function HomePage() {
 
   /* ---------- carousel ---------- */
   useEffect(() => {
-    if (paused) return;
-    const t = setInterval(() => setCurrent((c) => (c + 1) % SLIDES.length), 6500);
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase.from("carousel_slides")
+        .select("id, image_url, eyebrow, heading, body, cta_label, cta_url")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+      const list: HeroSlide[] = error ? [] : (data ?? [])
+        .filter((s: any) => s.image_url && s.heading)
+        .map((s: any) => ({
+          key: s.id, image: s.image_url, eyebrow: s.eyebrow, heading: s.heading, body: s.body,
+          cta: slideButton(s.cta_label, s.cta_url),
+        }));
+      if (!error) slideCache = list;
+      if (alive) setAdminSlides(list);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const slides: HeroSlide[] = adminSlides === null ? [] : adminSlides.length ? adminSlides : BUILT_IN;
+  const count = slides.length;
+  const shown = count ? current % count : 0;
+
+  useEffect(() => {
+    if (paused || count < 2) return;
+    const t = setInterval(() => setCurrent((c) => (c + 1) % count), 6500);
     return () => clearInterval(t);
-  }, [paused]);
+  }, [paused, count]);
 
   /* ---------- live content ---------- */
   useEffect(() => {
@@ -171,64 +234,74 @@ export default function HomePage() {
         onMouseLeave={() => setPaused(false)}
         aria-roledescription="carousel"
       >
-        {SLIDES.map((slide, i) => (
-          <img key={slide.image} src={slide.image} alt=""
-               className={`home-slide${i === current ? " is-active" : ""}`} />
+        {slides.map((slide, i) => (
+          <img key={slide.key} src={slide.image} alt=""
+               className={`home-slide${i === shown ? " is-active" : ""}`} />
         ))}
 
         <div className="home-carousel-shade" />
 
         {/* One caption per slide, cross-fading with the image behind it. */}
-        {SLIDES.map((slide, i) => (
-          <div key={slide.heading}
-               className={`home-carousel-overlay${i === current ? " is-active" : ""}`}
-               aria-hidden={i !== current}>
-            <div className="home-carousel-text">
-              <p className="home-eyebrow">
-                {session && i === 0 && profile?.full_name
-                  ? `Welcome back, ${profile.full_name.split(" ")[0]}`
-                  : slide.eyebrow}
-              </p>
-              <h1>{slide.heading}</h1>
-              <p className="home-lede">{slide.body}</p>
-              <div className="home-hero-actions">
-                <Link to={slide.cta.to} className="home-btn"
-                      tabIndex={i === current ? 0 : -1}>
-                  {slide.cta.label}
-                </Link>
-                {session ? (
-                  <Link to="/account" className="home-btn home-btn--ghost"
-                        tabIndex={i === current ? 0 : -1}>
-                    My account
-                  </Link>
-                ) : (
-                  <Link to="/signup" className="home-btn home-btn--ghost"
-                        tabIndex={i === current ? 0 : -1}>
-                    Create an account
-                  </Link>
-                )}
+        {slides.map((slide, i) => {
+          const focus = i === shown ? 0 : -1;
+          const eyebrow = session && i === 0 && profile?.full_name
+            ? `Welcome back, ${profile.full_name.split(" ")[0]}`
+            : slide.eyebrow;
+          return (
+            <div key={slide.key}
+                 className={`home-carousel-overlay${i === shown ? " is-active" : ""}`}
+                 aria-hidden={i !== shown}>
+              <div className="home-carousel-text">
+                {eyebrow && <p className="home-eyebrow">{eyebrow}</p>}
+                <h1>{slide.heading}</h1>
+                {slide.body && <p className="home-lede">{slide.body}</p>}
+                <div className="home-hero-actions">
+                  {slide.cta && (slide.cta.external ? (
+                    <a href={slide.cta.to} className="home-btn" tabIndex={focus}
+                       {...(/^https?:/i.test(slide.cta.to) ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+                      {slide.cta.label}
+                    </a>
+                  ) : (
+                    <Link to={slide.cta.to} className="home-btn" tabIndex={focus}>
+                      {slide.cta.label}
+                    </Link>
+                  ))}
+                  {session ? (
+                    <Link to="/account" className="home-btn home-btn--ghost" tabIndex={focus}>
+                      My account
+                    </Link>
+                  ) : (
+                    <Link to="/signup" className="home-btn home-btn--ghost" tabIndex={focus}>
+                      Create an account
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
-        <button className="home-arrow left" aria-label="Previous slide"
-                onClick={() => setCurrent((c) => (c - 1 + SLIDES.length) % SLIDES.length)}>
-          &#10094;
-        </button>
-        <button className="home-arrow right" aria-label="Next slide"
-                onClick={() => setCurrent((c) => (c + 1) % SLIDES.length)}>
-          &#10095;
-        </button>
+        {count > 1 && (
+          <>
+            <button className="home-arrow left" aria-label="Previous slide"
+                    onClick={() => setCurrent((shown - 1 + count) % count)}>
+              &#10094;
+            </button>
+            <button className="home-arrow right" aria-label="Next slide"
+                    onClick={() => setCurrent((shown + 1) % count)}>
+              &#10095;
+            </button>
 
-        <div className="home-dots">
-          {SLIDES.map((slide, i) => (
-            <button key={slide.heading} aria-label={slide.heading}
-                    aria-current={i === current}
-                    className={i === current ? "is-active" : ""}
-                    onClick={() => setCurrent(i)} />
-          ))}
-        </div>
+            <div className="home-dots">
+              {slides.map((slide, i) => (
+                <button key={slide.key} aria-label={slide.heading}
+                        aria-current={i === shown}
+                        className={i === shown ? "is-active" : ""}
+                        onClick={() => setCurrent(i)} />
+              ))}
+            </div>
+          </>
+        )}
       </section>
 
       {/* ---------- countdown to the next thing ---------- */}

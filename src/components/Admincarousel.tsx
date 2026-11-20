@@ -30,8 +30,11 @@ export default function AdminCarousel() {
   useEffect(() => { void load(); }, []);
 
   async function load() {
+    // same order as the home page shows them
     const { data } = await supabase.from("carousel_slides")
-      .select("*").order("sort_order", { ascending: true });
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
     setSlides((data as Slide[]) ?? []);
   }
 
@@ -61,7 +64,10 @@ export default function AdminCarousel() {
       body: form.body.trim() || null,
       cta_label: form.cta_label.trim() || null,
       cta_url: form.cta_url.trim() || null,
-      sort_order: Number(form.sort_order) || 100,
+      // a new slide goes to the end of the list; an edited one keeps its place
+      sort_order: editing
+        ? Number(form.sort_order) || 100
+        : Math.max(0, ...slides.map((s) => s.sort_order)) + 10,
     };
 
     const { error } = editing
@@ -88,25 +94,34 @@ export default function AdminCarousel() {
   }
 
   async function toggle(s: Slide) {
-    await supabase.from("carousel_slides")
+    const { error } = await supabase.from("carousel_slides")
       .update({ is_active: !s.is_active }).eq("id", s.id);
+    setMessage(error ? "Couldn't change that slide." : "");
     void load();
   }
 
   async function move(s: Slide, direction: -1 | 1) {
     const i = slides.findIndex((x) => x.id === s.id);
-    const swap = slides[i + direction];
-    if (!swap) return;
-    await Promise.all([
-      supabase.from("carousel_slides").update({ sort_order: swap.sort_order }).eq("id", s.id),
-      supabase.from("carousel_slides").update({ sort_order: s.sort_order }).eq("id", swap.id),
-    ]);
+    const j = i + direction;
+    if (i < 0 || j < 0 || j >= slides.length) return;
+    const order = [...slides];
+    [order[i], order[j]] = [order[j], order[i]];
+    // Number them 10, 20, 30… — swapping the two numbers alone does nothing
+    // when both slides have the same one (new slides used to all get 100).
+    const changed = order
+      .map((x, k) => ({ id: x.id, from: x.sort_order, to: (k + 1) * 10 }))
+      .filter((c) => c.from !== c.to);
+    setSlides(order.map((x, k) => ({ ...x, sort_order: (k + 1) * 10 })));
+    const results = await Promise.all(changed.map((c) =>
+      supabase.from("carousel_slides").update({ sort_order: c.to }).eq("id", c.id)));
+    setMessage(results.some((r) => r.error) ? "Couldn't save the new order." : "");
     void load();
   }
 
   async function remove(s: Slide) {
     if (!confirm("Remove this slide from the home page?")) return;
-    await supabase.from("carousel_slides").delete().eq("id", s.id);
+    const { error } = await supabase.from("carousel_slides").delete().eq("id", s.id);
+    setMessage(error ? "Couldn't remove that slide." : "");
     void load();
   }
 
@@ -127,7 +142,7 @@ export default function AdminCarousel() {
 
       {active === 0 && slides.length > 0 && (
         <p className="a-pill a-pill--warn" style={{ marginBottom: 16 }}>
-          Nothing is showing — every slide is switched off
+          Nothing is showing — every slide is switched off, so the home page shows its five built-in photos
         </p>
       )}
 
@@ -190,7 +205,10 @@ export default function AdminCarousel() {
       {slides.length === 0 ? (
         <div className="a-empty">
           <h3>No slides yet</h3>
-          <p>Add one above and it appears on the home page straight away.</p>
+          <p>
+            Until you add one, the home page shows its five built-in photos. Slides you add
+            here replace them: the home page shows the ones marked Showing, in this order.
+          </p>
         </div>
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
