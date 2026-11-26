@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "./../lib/supabaseClient";
 import { slugify, uploadPublicFile } from "./../lib/Storage";
 import { naira } from "./../lib/Payments";
@@ -29,6 +29,12 @@ export default function AdminProgrammes() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  // The access code is kept out of the public programmes table
+  // (body-payment-names.sql), so it's fetched separately when editing.
+  // "unknown" = couldn't fetch it: an empty box then leaves it as it is.
+  const [codeState, setCodeState] = useState<"known" | "loading" | "unknown">("known");
+  const editingRef = useRef<string | null>(null);
+  useEffect(() => { editingRef.current = editing; }, [editing]);
 
   // Archdeaconry scope: an archdeaconry admin (or a super admin viewing via
   // ?arch=) is limited to one archdeaconry's programmes, both in the list and
@@ -108,6 +114,25 @@ export default function AdminProgrammes() {
       extra_fields: p.extra_fields ?? [],
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
+    void loadAccessCode(p);
+  }
+
+  async function loadAccessCode(p: { id: string }) {
+    editingRef.current = p.id;
+    setCodeState("loading");
+    const { data, error } = await supabase.rpc("programme_access_code", { p_programme_id: p.id });
+    if (editingRef.current !== p.id) return;          // moved on to another programme
+    if (error && /could not find the function|schema cache/i.test(error.message)) {
+      setCodeState("known");                          // SQL not run yet: the code is still on the programme
+      return;
+    }
+    if (error) {
+      console.error("programme_access_code", error);
+      setCodeState("unknown");
+      return;
+    }
+    setForm((f) => ({ ...f, access_code: (data as string | null) ?? "" }));
+    setCodeState("known");
   }
 
   async function save() {
@@ -116,6 +141,13 @@ export default function AdminProgrammes() {
     if (!form.is_free && (!form.fee_naira || Number(form.fee_naira) <= 0)) {
       return setMessage("Enter the fee, or switch it to Free.");
     }
+    if (editing && codeState === "loading") return setMessage("One moment — still loading the access code.");
+
+    // The code: text sets it, "" removes it, null leaves it as it is.
+    const code = form.access_code.trim();
+    const accessCode = form.is_free ? null
+      : editing && codeState === "known" ? code
+      : code || null;
 
     setSaving(true);
     setMessage("");
@@ -131,7 +163,7 @@ export default function AdminProgrammes() {
       registration_closes_at: form.registration_closes_at || null,
       // Free always writes 0; paid writes the entered amount.
       fee_naira: form.is_free ? 0 : Number(form.fee_naira) || 0,
-      access_code: form.is_free ? null : (form.access_code.trim() || null),
+      access_code: accessCode,
       capacity: form.capacity === "" ? null : Number(form.capacity),
       is_published: form.is_published,
       banner_url: form.banner_url || null,
@@ -161,6 +193,7 @@ export default function AdminProgrammes() {
     setMessage(editing ? "Programme updated." : "Programme created.");
     setForm({ ...BLANK });
     setEditing(null);
+    setCodeState("known");
     void load();
   }
 
@@ -199,7 +232,7 @@ export default function AdminProgrammes() {
     }
 
     setMessage(`"${p.title}" was deleted.`);
-    if (editing === p.id) { setEditing(null); setForm({ ...BLANK }); }
+    if (editing === p.id) { setEditing(null); setForm({ ...BLANK }); setCodeState("known"); }
     void load();
   }
 
@@ -277,13 +310,21 @@ export default function AdminProgrammes() {
                 Access code for archdeaconry / parish / church payments
               </label>
               <input className="border rounded px-3 py-2 w-full max-w-xs"
-                     placeholder="e.g. GLORY2026"
+                     placeholder={codeState === "loading" ? "Loading the code…" : "e.g. GLORY2026"}
+                     autoComplete="off" spellCheck={false}
+                     disabled={codeState === "loading"}
                      value={form.access_code}
                      onChange={(e) => set("access_code", e.target.value)} />
+              {codeState === "unknown" && (
+                <p className="text-xs text-amber-700 mt-1">
+                  Couldn't load the current code. Leave this empty to keep it as it is, or type a new one to replace it.
+                </p>
+              )}
               <p className="text-xs text-gray-500 mt-1">
                 You choose this. A church, parish or archdeaconry enters it on the
-                payment page to pay for their members in bulk. Share it only with
-                the people meant to pay.
+                payment page to pay for their members in bulk, and sees the names of
+                its members who have registered — so share it only with the people
+                meant to pay. Clear it to stop bulk payments.
               </p>
 
               {/* which bank account transfers for this programme go to (its own Save button) */}
@@ -399,7 +440,7 @@ export default function AdminProgrammes() {
             {saving ? "Saving…" : editing ? "Save changes" : "Create programme"}
           </button>
           {editing && (
-            <button onClick={() => { setEditing(null); setForm({ ...BLANK }); }}
+            <button onClick={() => { setEditing(null); setForm({ ...BLANK }); setCodeState("known"); }}
                     className="px-5 py-2 rounded border">
               Cancel
             </button>

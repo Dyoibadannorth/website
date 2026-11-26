@@ -4,10 +4,14 @@ import { supabase } from "../lib/supabaseClient";
 /**
  * Voucher generator.
  *
- * A voucher is a prepaid registration for a programme. Admins mint them here;
+ * A voucher is a registration paid for in advance. Admins mint them here;
  * sponsors and body-payments mint them automatically elsewhere — all land in
  * the same vouchers table. Each carries an identity so the receipt can say who
  * the gift came from: anonymous, a named person, or a church body.
+ *
+ * Codes for an archdeaconry / parish / church are "pay later" by default:
+ * everyone who uses one is listed, ticked, on that body's payment page until
+ * the body pays (body-payment-names.sql). Untick it for a batch already paid.
  */
 
 function randomCode(len: number) {
@@ -32,6 +36,7 @@ export default function VoucherGenerator() {
   const [bodyType, setBodyType] = useState<BodyType>("church");
   const [bodyName, setBodyName] = useState("");
   const [community, setCommunity] = useState("");
+  const [payLater, setPayLater] = useState(true);   // the body pays for each code used, on its payment page
 
   const [generated, setGenerated] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -72,6 +77,8 @@ export default function VoucherGenerator() {
       body_type: identity === "body" ? bodyType : null,
       church_community: identity === "body" && bodyType === "church" ? community.trim() || null : null,
       source: "admin",
+      // pay-later is the database's default for a body's codes; only say so when it's already paid
+      ...(identity === "body" && !payLater ? { owed: false } : {}),
     }));
 
     const { error } = await supabase.from("vouchers").insert(rows);
@@ -106,8 +113,9 @@ export default function VoucherGenerator() {
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-1">Voucher generator</h1>
       <p className="text-gray-600 mb-6">
-        Mint prepaid registration codes for a programme. Whoever holds a code can
-        register free — the receipt shows who the gift came from.
+        Make registration codes for a programme. Each code registers one person
+        free. Codes for an archdeaconry, parish or church only work for its members,
+        and it pays for each one used on its payment page.
       </p>
 
       <div className="border rounded-lg p-5 bg-white shadow-sm">
@@ -175,6 +183,23 @@ export default function VoucherGenerator() {
                      placeholder="Community / location — e.g. Akinyele"
                      value={community} onChange={(e) => setCommunity(e.target.value)} />
             )}
+            <p className="text-xs text-gray-500">
+              {bodyType === "archdeaconry"
+                ? "Only members whose profile says this archdeaconry can use these codes."
+                : bodyType === "parish"
+                  ? "Only members whose church on their profile matches this parish's name can use these codes."
+                  : "Only members whose profile names this church can use these codes."}
+              {" "}For anyone else, choose "A person" or "Anonymous".
+            </p>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" checked={payLater} onChange={(e) => setPayLater(e.target.checked)}
+                     style={{ width: 18, height: 18, marginTop: 2, flex: "none" }} />
+              <span>
+                <b>The {bodyType} will pay for these later.</b>{" "}
+                Everyone who uses one is listed, ticked, on its payment page until it pays.
+                Untick this if it has already paid.
+              </span>
+            </label>
           </div>
         )}
 

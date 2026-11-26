@@ -337,6 +337,8 @@
   padding: 26px;
   width: 100%; max-width: 420px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  /* a tall dialog scrolls on a small phone instead of running off the screen */
+  max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow-y: auto;
 }
 .pg-modal h3 {
   font-family: Georgia, serif;
@@ -373,7 +375,8 @@
 
 /* ---- body payment page ---- */
 .pg-body-pay { max-width: 560px; margin: 0 auto; padding: 40px 20px 70px; }
-.pg-body-pay h1 { font-family: Georgia, serif; color: #5c0000; margin: 0 0 4px; }
+.pg-body-pay h1 { font-family: Georgia, serif; color: #5c0000; margin: 0 0 4px;
+  font-size: clamp(1.6rem, 5vw, 2.1rem); font-weight: 700; line-height: 1.2; }
 .pg-body-pay .pg-sub { color: #6b5f5f; margin: 0 0 24px; }
 .pg-card {
   background: #fff; border: 1px solid #e6dede; border-radius: 14px;
@@ -401,3 +404,162 @@
 .pg-summary > div { display: flex; justify-content: space-between; font-size: 0.9rem; color: #4a3f3f; }
 .pg-summary-total { font-weight: 700; color: #5c0000; font-size: 1.05rem !important;
   border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px; }
+
+/* ============================================================
+   Body payment page — tick the people already registered
+   (Bodypayment.tsx). Scoped to .pg-body-pay; written to win over
+   the site-wide button / input rules in RegistrationForm.css.
+   ============================================================ */
+.pg-body-pay .bp-status { text-align: center; color: var(--muted); padding: 30px 0; }
+
+.pg-body-pay .bp-card {
+  background: #fff; border: 1px solid var(--line); border-radius: 14px;
+  padding: 22px; box-shadow: 0 8px 24px rgba(92, 0, 0, 0.08);
+}
+
+.pg-body-pay .bp-label {
+  display: block; font-size: 0.85rem; font-weight: 600; color: var(--ink);
+  margin: 16px 0 4px;
+}
+.pg-body-pay .pg-bodytype { margin-top: 6px; }
+.pg-body-pay .pg-chip { color: var(--maroon); font-weight: 600; }
+.pg-body-pay .pg-chip:hover { background: #f9f3f3; }
+.pg-body-pay .pg-chip.is-active,
+.pg-body-pay .pg-chip.is-active:hover { background: #5c0000; color: #fff; }
+
+/* names keep their own capitals (the code box stays upper case) */
+.pg-body-pay .bp-input { text-transform: none; background: #fff; color: var(--ink); }
+.pg-body-pay select.bp-input { cursor: pointer; }
+
+.pg-body-pay .pg-input:focus-visible,
+.pg-body-pay .bp-check:focus-visible,
+.pg-body-pay button:focus-visible,
+.pg-body-pay a:focus-visible { outline: 2px solid var(--maroon); outline-offset: 2px; }
+
+/* who is paying */
+.pg-body-pay .bp-payer {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.pg-body-pay .bp-eyebrow {
+  font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted); margin: 0;
+}
+.pg-body-pay .bp-payer-name { font-size: 1.1rem; font-weight: 700; color: var(--maroon-dark); margin: 2px 0 0; }
+
+.pg-body-pay .bp-link {
+  background: none; border: none; border-radius: 0; padding: 4px 0;
+  color: var(--maroon); font-size: 0.9rem; font-weight: 600;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer; flex: none;
+}
+.pg-body-pay .bp-link:hover { background: none; color: var(--maroon-dark); }
+
+.pg-body-pay .bp-section-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  margin-top: 18px;
+}
+.pg-body-pay .bp-title { font-size: 1rem; font-weight: 700; margin: 0; color: var(--ink); }
+.pg-body-pay .bp-hint { font-size: 0.86rem; color: var(--muted); margin: 4px 0 0; line-height: 1.5; }
+.pg-body-pay .bp-empty { margin: 8px 0 0; }
+
+/* the list of people */
+.pg-body-pay .bp-list {
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 2px 14px 4px; margin-top: 10px;
+  max-height: 460px; overflow-y: auto; overscroll-behavior: contain;
+}
+.pg-body-pay .bp-group {
+  font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted); margin: 14px 0 2px;
+}
+.pg-body-pay .bp-person {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 11px 0; border-bottom: 1px dashed #ece4e4; cursor: pointer;
+}
+.pg-body-pay .bp-person:last-child { border-bottom: none; }
+.pg-body-pay .bp-check {
+  flex: none; width: 20px; height: 20px; margin: 1px 0 0; padding: 0;
+  border-radius: 4px; accent-color: var(--maroon); cursor: pointer;
+}
+.pg-body-pay .bp-person-text { display: grid; gap: 2px; min-width: 0; }
+.pg-body-pay .bp-person-name { font-weight: 600; line-height: 1.35; }
+.pg-body-pay .bp-person-meta { font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.pg-body-pay .bp-flag {
+  justify-self: start; margin-top: 3px;
+  font-size: 0.8rem; line-height: 1.4; color: #7d5a10;
+  background: #fdf4e1; border-radius: 6px; padding: 2px 8px;
+}
+.pg-body-pay .bp-flag--quiet { color: var(--muted); background: #f4efef; }
+.pg-body-pay .bp-flag--note { display: block; margin: 10px 0 0; padding: 8px 11px; }
+
+/* already in with a voucher code: ticked, not clickable */
+.pg-body-pay .bp-person--done { cursor: default; }
+.pg-body-pay .bp-list--done { max-height: none; }
+.pg-body-pay .bp-more { margin-top: 8px; }
+.pg-body-pay .bp-tick {
+  flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 4px;
+  display: grid; place-items: center; background: #1b6b34; color: #fff;
+}
+.pg-body-pay .bp-flag--done { color: #1b5e31; background: #e7f4ea; }
+.pg-body-pay .bp-code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.78rem; letter-spacing: 0.06em; white-space: nowrap;
+}
+
+/* search, extra codes */
+.pg-body-pay .bp-block { margin-top: 20px; padding-top: 4px; border-top: 1px dashed var(--line); }
+.pg-body-pay .bp-search { display: flex; gap: 8px; }
+.pg-body-pay .bp-search .pg-input { margin: 4px 0 0; flex: 1; min-width: 0; }
+.pg-body-pay .bp-small-btn {
+  flex: none; align-self: stretch; margin-top: 4px;
+  padding: 0 16px; min-height: 44px; border-radius: 9px;
+  border: 1.5px solid var(--maroon); background: #fff; color: var(--maroon);
+  font-size: 0.9rem; font-weight: 700; cursor: pointer;
+}
+.pg-body-pay .bp-small-btn:hover { background: #f9f3f3; }
+.pg-body-pay .bp-small-btn:disabled { opacity: 0.5; cursor: default; background: #fff; }
+.pg-body-pay .bp-results { margin-top: 8px; display: grid; gap: 8px; }
+.pg-body-pay .bp-result {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+}
+.pg-body-pay .bp-result .bp-small-btn { margin-top: 0; min-height: 38px; }
+
+.pg-body-pay .bp-stepper { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.pg-body-pay .bp-stepper button {
+  width: 44px; height: 44px; padding: 0; border-radius: 9px;
+  border: 1.5px solid #d8c9c9; background: #fff; color: var(--maroon);
+  font-size: 1.35rem; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.pg-body-pay .bp-stepper button:hover { background: #f9f3f3; }
+.pg-body-pay .bp-stepper button:disabled { opacity: 0.45; cursor: default; background: #fff; }
+.pg-body-pay .bp-stepper input {
+  width: 92px; margin: 0; text-align: center; text-transform: none;
+  font-variant-numeric: tabular-nums; background: #fff;
+}
+
+/* the payer's earlier payments */
+.pg-body-pay .bp-mine { margin-top: 28px; }
+.pg-body-pay .bp-mine-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center;
+  margin-top: 10px; padding: 12px 14px;
+  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  color: inherit; text-decoration: none;
+}
+.pg-body-pay .bp-mine-row:hover { border-color: var(--maroon); }
+.pg-body-pay .bp-mine-name { font-weight: 600; overflow-wrap: anywhere; }
+.pg-body-pay .bp-mine-meta { font-size: 0.85rem; color: var(--muted); }
+.pg-body-pay .bp-mine-open { font-size: 0.85rem; font-weight: 600; color: var(--maroon); justify-self: end; }
+.pg-body-pay .bp-pill {
+  justify-self: end; font-size: 0.72rem; font-weight: 700;
+  padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+}
+.pg-body-pay .bp-pill--paid { background: #e4f5e8; color: #1b6b34; }
+.pg-body-pay .bp-pill--wait { background: #fdf4e1; color: #8a6212; }
+.pg-body-pay .bp-pill--no   { background: #fdecec; color: #8c1d1d; }
+
+@media (max-width: 480px) {
+  .pg-body-pay { padding: 26px 14px 56px; }
+  .pg-body-pay .bp-card { padding: 18px 16px; }
+  .pg-body-pay .bp-list { padding: 2px 10px 4px; max-height: none; }
+}

@@ -30,9 +30,13 @@ export default function ItemSponsorshipReceipt() {
       const { data: prod } = await supabase.from("products").select("name").eq("id", data.product_id).maybeSingle();
       setProduct(prod);
       if (data.mode === "voucher") {
-        const { data: v } = await supabase.from("vouchers")
-          .select("code").eq("product_id", data.product_id)
-          .eq("source", "item_sponsorship").order("created_at", { ascending: false }).limit(1);
+        // the code this sponsorship bought (voucher-lock.sql links them)
+        const linked = await supabase.from("vouchers").select("code").eq("item_ref", data.id).limit(1);
+        const v = linked.error
+          // older database: the newest code for this item, as before
+          ? (await supabase.from("vouchers").select("code").eq("product_id", data.product_id)
+              .eq("source", "item_sponsorship").order("created_at", { ascending: false }).limit(1)).data
+          : linked.data;
         setVoucher(v?.[0]?.code ?? null);
       }
     }

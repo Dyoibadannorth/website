@@ -245,7 +245,7 @@ export default function ProgrammeDetail() {
     setBusy(false);
     setBodyNeedsVoucher(!!data);
     if (data) {
-      setNotice("This " + bodyType + " has already paid — enter the voucher code they gave you.");
+      setNotice("");
     } else {
       // Not paid yet → record the body on the registration; it stays pending
       // until the body pays via their payment page.
@@ -560,7 +560,7 @@ export default function ProgrammeDetail() {
             </div>
           )}
 
-          {notice && <p className="pg-notice">{notice}</p>}
+          {notice && !payMode && <p className="pg-notice">{notice}</p>}
         </aside>
       </div>
 
@@ -595,6 +595,7 @@ export default function ProgrammeDetail() {
                 <button className="pg-button" onClick={() => redeemVoucher()} disabled={busy}>
                   {busy ? "Checking…" : "Use voucher"}
                 </button>
+                {notice && <p className="pg-notice" role="alert">{notice}</p>}
                 <button className="pg-button pg-button--quiet" onClick={() => setPayMode("choose")}>
                   Back
                 </button>
@@ -628,13 +629,20 @@ export default function ProgrammeDetail() {
                 {bodyNeedsVoucher ? (
                   <>
                     <p className="pg-note pg-note--warn">
-                      This {bodyType} has already paid — enter the voucher code they gave you.
+                      This {bodyType} has voucher codes. If they gave you one, enter it here.
                     </p>
                     <input className="pg-input" placeholder="Voucher code"
                            value={voucherCode}
                            onChange={(e) => setVoucherCode(e.target.value.toUpperCase())} />
                     <button className="pg-button" onClick={() => redeemVoucher()} disabled={busy}>
                       {busy ? "Checking…" : "Use voucher"}
+                    </button>
+                    <p className="pg-note">
+                      No code? Ask them to pay for you. Your name will be on their
+                      payment page for them to tick.
+                    </p>
+                    <button className="pg-button pg-button--quiet" onClick={() => void recordBodyPending()} disabled={busy}>
+                      Ask my {bodyType} to pay for me
                     </button>
                   </>
                 ) : (
@@ -643,6 +651,7 @@ export default function ProgrammeDetail() {
                   </button>
                 )}
 
+                {notice && <p className="pg-notice" role="alert">{notice}</p>}
                 <button className="pg-button pg-button--quiet" onClick={() => setPayMode("choose")}>
                   Back
                 </button>

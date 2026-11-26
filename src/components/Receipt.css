@@ -160,3 +160,17 @@
   padding: 8px 12px; font-size: 0.95rem;
 }
 .rcpt-codes-wait { color: var(--muted); font-style: italic; text-align: center; }
+/* Body payment receipt: who was paid for, and who used each code */
+.rcpt-names {
+  list-style: none; margin: 0; padding: 0; text-align: left;
+  display: grid; gap: 6px;
+}
+.rcpt-names li { display: grid; gap: 1px; font-size: 0.92rem; font-weight: 500; }
+.rcpt-names-sub { font-size: 0.78rem; font-weight: 400; color: var(--muted); }
+.rcpt-code small {
+  display: block; margin-top: 3px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 0.7rem; font-weight: 500; letter-spacing: 0; color: var(--muted);
+}
+.rcpt-code.is-used { background: #f4f1ee; border-color: var(--line); color: #8a7f7f; }
+.rcpt-cap::first-letter { text-transform: uppercase; }
