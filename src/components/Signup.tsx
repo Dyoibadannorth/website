@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { uploadPublicFile } from "../lib/Storage";
+import { cropToFace } from "../lib/Facephoto";
 import logo from "../assets/LOGO.jpeg";
 import { ARCHDEACONRIES } from "../lib/Constants";
 import "./Auth.css";
@@ -15,6 +15,7 @@ import "./Auth.css";
  */
 
 const SIGNUP_TIMEOUT_MS = 20_000;
+const PHOTO_TIMEOUT_MS = 30_000;
 
 /** Rejects if a promise takes too long, so the UI can never hang forever. */
 function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
@@ -24,6 +25,23 @@ function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
       setTimeout(() => reject(new Error("timeout")), ms),
     ),
   ]);
+}
+
+/**
+ * Puts the sign-up photo on the new account. It can only go up once the
+ * account exists: before email confirmation there's no session, so it goes
+ * into the account's own folder, which storage allows for a brand-new account
+ * with no photo yet, and signup_photo_set attaches it (signup-photo.sql).
+ */
+async function savePhoto(userId: string, file: File, signedIn: boolean) {
+  const path = `${userId}/${Date.now()}-profile.jpg`;
+  const bucket = supabase.storage.from("member-photos");
+  const { error } = await bucket.upload(path, file, { cacheControl: "31536000", upsert: false, contentType: "image/jpeg" });
+  if (error) throw error;
+  const url = bucket.getPublicUrl(path).data.publicUrl;
+  const { error: rpcError } = await supabase.rpc("signup_photo_set", { p_user_id: userId, p_path: path, p_url: url });
+  // before signup-photo.sql is run, someone signed in straight away can still save it themselves
+  if (rpcError && signedIn) await supabase.from("profiles").update({ photo_url: url }).eq("id", userId);
 }
 
 const isNetworkError = (err: unknown) => {
@@ -41,8 +59,10 @@ export default function Signup() {
     date_of_birth: "", archdeaconry: "", church: "", occupation: "",
     educational_qualification: "", address: "",
   });
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);   // already cropped to the face
   const [photoPreview, setPhotoPreview] = useState<string>("");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   const [busy, setBusy] = useState(false);
 
   // The Create account button stays disabled until every required field is
@@ -67,6 +87,22 @@ export default function Signup() {
 
   const set = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+
+  // Cropped to the face straight away (like the account page), so the preview
+  // is exactly what goes on their cards.
+  async function pickPhoto(file?: File) {
+    if (!file) return;
+    setPhotoError("");
+    setPhotoBusy(true);
+    try {
+      const cropped = await cropToFace(file);
+      setPhotoFile(cropped);
+      setPhotoPreview(URL.createObjectURL(cropped));
+    } catch (err) {
+      setPhotoError((err as Error).message);
+    }
+    setPhotoBusy(false);
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,18 +131,6 @@ export default function Signup() {
     setBusy(true);
 
     try {
-      // Upload the photo first (if any) so its URL rides along in signup
-      // metadata and the profile trigger picks it up.
-      let photoUrl = "";
-      if (photoFile) {
-        try {
-          const key = form.email.trim().toLowerCase().replace(/[^a-z0-9]/g, "-");
-          photoUrl = await uploadPublicFile("member-photos", photoFile, `signup/${key}`);
-        } catch {
-          // Photo is optional — press on without it rather than block signup.
-        }
-      }
-
       const { data, error: signUpError } = await withTimeout(
         supabase.auth.signUp({
           email: form.email.trim().toLowerCase(),
@@ -122,7 +146,6 @@ export default function Signup() {
               occupation: form.occupation.trim(),
               educational_qualification: form.educational_qualification.trim(),
               address: form.address.trim(),
-              photo_url: photoUrl,
             },
             emailRedirectTo: `${window.location.origin}/login`,
           },
@@ -148,6 +171,17 @@ export default function Signup() {
       // The profile is filled by the handle_new_user trigger from the signup
       // metadata above — no client-side profile write needed, and crucially
       // none that would fail against RLS before the session exists.
+
+      // Now the account exists, the photo can go on it. (An email that already
+      // has an account comes back with no identities: nothing to add it to.)
+      const newUser = data.user;
+      if (photoFile && newUser?.id && (newUser.identities?.length ?? 1) > 0) {
+        try {
+          await withTimeout(savePhoto(newUser.id, photoFile, !!data.session), PHOTO_TIMEOUT_MS);
+        } catch {
+          // The photo is optional: they can add it on their account page.
+        }
+      }
 
       if (!data.session) {
         navigate("/check-your-email", { state: { email: form.email } });
@@ -189,18 +223,13 @@ export default function Signup() {
               <span>Add a photo</span>
             </div>
           )}
-          <label className="signup-photo-btn">
-            {photoPreview ? "Change photo" : "📷 Upload a photo"}
-            <input type="file" accept="image/*" hidden
-                   onChange={(e) => {
-                     const f = e.target.files?.[0];
-                     if (f) {
-                       setPhotoFile(f);
-                       setPhotoPreview(URL.createObjectURL(f));
-                     }
-                   }} />
+          <label className="signup-photo-btn" aria-disabled={photoBusy || busy}>
+            {photoBusy ? "Checking your photo…" : photoPreview ? "Change photo" : "📷 Upload a photo"}
+            <input type="file" accept="image/*" hidden disabled={photoBusy || busy}
+                   onChange={(e) => { void pickPhoto(e.target.files?.[0]); e.target.value = ""; }} />
           </label>
         </div>
+        {photoError && <p className="auth-error" role="alert">{photoError}</p>}
         <p className="auth-sub">
           Register once. After this, signing up for a programme takes seconds and
           your attendance card is generated for you.
@@ -250,7 +279,7 @@ export default function Signup() {
 
         {error && <p className="auth-error">{error}</p>}
 
-        <button type="submit" disabled={busy || !formValid}>
+        <button type="submit" disabled={busy || photoBusy || !formValid}>
           {busy ? "Creating your account…" : "Create account"}
         </button>
 
